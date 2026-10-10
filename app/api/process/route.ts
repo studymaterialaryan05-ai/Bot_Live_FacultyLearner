@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   try {
     const { data: audioBlob, error: downloadError } = await admin.storage.from("lecture-audio").download(audioPath);
     if (downloadError || !audioBlob) throw new Error("Could not retrieve the uploaded recording from private storage.");
-    if (audioBlob.size > 500 * 1024 * 1024) throw new Error("Recording exceeds the configured 500 MB upload limit.");
+    if (audioBlob.size > 24 * 1024 * 1024) throw new Error("This recording is over 24 MB. The current transcription API limit requires a smaller file. Compress it or split it into shorter parts, then upload each part as a separate lecture segment.");
 
     const buffer = Buffer.from(await audioBlob.arrayBuffer());
     const mimeType = audioBlob.type || "application/octet-stream";
