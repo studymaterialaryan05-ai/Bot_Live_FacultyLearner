@@ -58,9 +58,10 @@ Install Node.js LTS, clone the repository, run `npm install`, copy `.env.example
 ## Troubleshooting
 - **Sign-in link does not work:** check Supabase Authentication URL Configuration and your email spam folder.
 - **Upload fails:** check the private `lecture-audio` bucket and Storage policies created by the SQL script.
-- **Analysis fails:** confirm the OpenAI key and billing/usage access. Check Vercel function logs.
+- **Analysis fails:** confirm `GROQ_API_KEY` is set correctly in Vercel and review Vercel function logs and Groq usage limits.
 - **Research is missing:** add `TAVILY_API_KEY`; research is optional and the app should still process a lecture without it.
-
 
 ## Zero-cost configuration
 Use Groq's free developer API key for both transcription and structured analysis. Keep Tavily optional, as it has its own usage quota. Vercel Hobby and Supabase Free are intended for personal/small projects, subject to their current usage limits. Do not enable billing or upgrade prompts if you want to maintain a ₹0 budget.
+
+Deployment trigger check for Vercel.
