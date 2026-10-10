@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
 export const maxDuration = 300;
@@ -7,7 +6,7 @@ export const maxDuration = 300;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const openaiKey = process.env.OPENAI_API_KEY!;
+const groqKey = process.env.GROQ_API_KEY!
 
 function adminClient() {
   return createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -20,7 +19,7 @@ export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   if (!token) return jsonError("Sign in before processing a lecture.", 401);
-  if (!supabaseUrl || !anonKey || !serviceKey || !openaiKey) return jsonError("Server setup is incomplete. Add Supabase and OpenAI environment variables in Vercel.", 500);
+  if (!supabaseUrl || !anonKey || !serviceKey || !groqKey) return jsonError("Server setup is incomplete. Add Supabase and Groq environment variables in Vercel.", 500);
 
   const authClient = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: authData, error: authError } = await authClient.auth.getUser(token);
@@ -68,14 +67,23 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await audioBlob.arrayBuffer());
     const mimeType = audioBlob.type || "application/octet-stream";
     const audioFile = new File([buffer], String(filename).replace(/[^a-zA-Z0-9._-]/g, "_"), { type: mimeType });
-    const openai = new OpenAI({ apiKey: openaiKey });
-
-    const transcription: any = await openai.audio.transcriptions.create({
-      file: audioFile,
-      model: "gpt-4o-mini-transcribe",
-      response_format: "json",
-      prompt: "Transcribe an MBA management lecture, likely in an Indian classroom. Preserve business, operations, economics, finance, marketing, strategy, rural management, supply chain, quantitative methods, and academic terminology. Preserve acronyms, company names, formulas and examples carefully. Do not summarize or silently fill in unclear speech."
+    const transcriptionForm = new FormData();
+    transcriptionForm.append("file", audioFile);
+    transcriptionForm.append("model", "whisper-large-v3");
+    transcriptionForm.append("response_format", "verbose_json");
+    transcriptionForm.append("timestamp_granularities[]", "segment");
+    transcriptionForm.append("prompt", "Transcribe an MBA management lecture in an Indian classroom. Preserve business, operations, economics, finance, marketing, strategy, rural management, supply chain, quantitative methods, acronyms, company names, formulas and examples. Do not summarize or silently fill unclear speech.");
+    const transcriptionResponse = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + groqKey },
+      body: transcriptionForm,
+      signal: AbortSignal.timeout(240000)
     });
+    if (!transcriptionResponse.ok) {
+      const detail = await transcriptionResponse.text();
+      throw new Error("Free transcription provider error (" + transcriptionResponse.status + "): " + detail.slice(0, 500));
+    }
+    const transcription: any = await transcriptionResponse.json();
     const transcript = String(transcription.text || "").trim();
     if (!transcript) throw new Error("The transcription service returned an empty transcript.");
 
@@ -129,16 +137,26 @@ Rules:
 - The transcript may contain transcription errors. If a term appears suspicious, flag it rather than silently correcting it.
 - The provided sources are: ${JSON.stringify(webSources)}`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: instructions },
-        { role: "user", content: "Course: " + courseName + "\nFaculty: " + facultyName + "\nDate: " + (lectureDate || "unknown") + "\n\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\n" + cumulativeContext + "\n\nTRANSCRIPT:\n" + transcript.slice(0, 90000) }
-      ]
+    const completionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + groqKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "openai/gpt-oss-20b",
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: instructions },
+          { role: "user", content: "Course: " + courseName + "\\nFaculty: " + facultyName + "\\nDate: " + (lectureDate || "unknown") + "\\n\\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\\n" + cumulativeContext + "\\n\\nTRANSCRIPT:\\n" + transcript.slice(0, 90000) }
+        ]
+      }),
+      signal: AbortSignal.timeout(240000)
     });
-    const raw = completion.choices[0]?.message?.content || "{}";
+    if (!completionResponse.ok) {
+      const detail = await completionResponse.text();
+      throw new Error("Free analysis provider error (" + completionResponse.status + "): " + detail.slice(0, 600));
+    }
+    const completion: any = await completionResponse.json();
+    const raw = completion.choices?.[0]?.message?.content || "{}";
     let analysis: any;
     try { analysis = JSON.parse(raw); } catch { throw new Error("The analysis service returned an invalid format. Please retry."); }
     analysis.sources = Array.isArray(analysis.sources) ? analysis.sources : webSources.map((s:any)=>({title:s.title,url:s.url,summary:s.summary}));
