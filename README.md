@@ -50,6 +50,7 @@ Install Node.js LTS, clone the repository, run `npm install`, copy `.env.example
 ## Important limits and safety
 - The app only processes audio you are authorized to record and upload. Follow your institution's rules and applicable consent/privacy requirements.
 - Audio remains in a private Storage bucket. Do not make the bucket public.
+- The current MVP enforces a 24 MB per-recording limit to stay within the transcription API file-size constraint. Split long lectures into shorter audio parts or compress them before upload. Automatic audio chunking is a planned enhancement.
 - Transcription can mishear names, formulas, acronyms and fast speech. Review flagged/uncertain sections against the recording.
 - Exam predictions are study-prioritization estimates based on available evidence, not promises or access to confidential exam papers.
 - The initial MVP stores lecture analysis and history. Stronger cross-lecture faculty pattern scoring, editing/reprocessing, export to PDF/DOCX, and richer assessment analytics are planned next.
