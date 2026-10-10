@@ -15,7 +15,7 @@ FacultyLens AI turns MBA lecture recordings into searchable transcripts, structu
 ## Stack
 - Next.js App Router + TypeScript
 - Supabase Auth, Postgres and private Storage
-- OpenAI API for transcription and analysis
+- Groq API for transcription and analysis (free tier, subject to limits)
 - Optional Tavily API for web research
 - Vercel deployment
 
@@ -29,10 +29,10 @@ FacultyLens AI turns MBA lecture recordings into searchable transcripts, structu
 5. In **Authentication → URL Configuration**, add your local URL `http://localhost:3000` and your eventual Vercel URL to allowed redirect URLs.
 
 ### 2. Create API keys
-- OpenAI API key: https://platform.openai.com/api-keys
+- Groq API key (free developer tier): https://console.groq.com/keys
 - Optional Tavily Search key: https://tavily.com
 
-API usage can incur charges. Set provider spending limits where available.
+This setup is designed to use Groq's free developer tier and free hosting/database tiers where eligible. Free quotas and model availability can change. Do not enable paid plans if you want to maintain a ₹0 budget.
 
 ### 3. Configure Vercel
 1. Import this GitHub repository into https://vercel.com.
@@ -40,7 +40,7 @@ API usage can incur charges. Set provider spending limits where available.
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
-   - `OPENAI_API_KEY`
+   - `GROQ_API_KEY`
    - `TAVILY_API_KEY` (optional)
 3. Deploy or redeploy after saving the variables.
 
@@ -50,7 +50,7 @@ Install Node.js LTS, clone the repository, run `npm install`, copy `.env.example
 ## Important limits and safety
 - The app only processes audio you are authorized to record and upload. Follow your institution's rules and applicable consent/privacy requirements.
 - Audio remains in a private Storage bucket. Do not make the bucket public.
-- The current MVP enforces a 24 MB per-recording limit to stay within the transcription API file-size constraint. Split long lectures into shorter audio parts or compress them before upload. Automatic audio chunking is a planned enhancement.
+- The current MVP enforces a 24 MB per-recording limit to stay within the free transcription API file-size constraint. Split long lectures into shorter audio parts or compress them before upload. Automatic audio chunking is a planned enhancement.
 - Transcription can mishear names, formulas, acronyms and fast speech. Review flagged/uncertain sections against the recording.
 - Exam predictions are study-prioritization estimates based on available evidence, not promises or access to confidential exam papers.
 - The initial MVP stores lecture analysis and history. Stronger cross-lecture faculty pattern scoring, editing/reprocessing, export to PDF/DOCX, and richer assessment analytics are planned next.
@@ -60,3 +60,7 @@ Install Node.js LTS, clone the repository, run `npm install`, copy `.env.example
 - **Upload fails:** check the private `lecture-audio` bucket and Storage policies created by the SQL script.
 - **Analysis fails:** confirm the OpenAI key and billing/usage access. Check Vercel function logs.
 - **Research is missing:** add `TAVILY_API_KEY`; research is optional and the app should still process a lecture without it.
+
+
+## Zero-cost configuration
+Use Groq's free developer API key for both transcription and structured analysis. Keep Tavily optional, as it has its own usage quota. Vercel Hobby and Supabase Free are intended for personal/small projects, subject to their current usage limits. Do not enable billing or upgrade prompts if you want to maintain a ₹0 budget.
