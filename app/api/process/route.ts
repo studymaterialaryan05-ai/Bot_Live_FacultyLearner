@@ -111,6 +111,7 @@ Return only valid JSON matching this schema:
  "mcqs": [{"question":string,"options":[string,string,string,string],"answer":"A"|"B"|"C"|"D","explanation":string}],
  "assignment":{"prompt":string,"deliverables":string,"evaluation_rubric":string},
  "revision_checklist":string[],
+ "faculty_profile_update":{"teaching_style":string,"recurring_themes":string[],"assessment_preferences":string[],"recurring_examples":string[],"explicit_exam_cues":string[],"confidence_notes":string[],"evidence_ledger":[{"pattern":string,"evidence":string,"lecture_date":string,"strength":"explicit"|"observed"|"tentative"}]},
  "sources":[{"title":string,"url":string,"summary":string}]
 }
 
@@ -134,7 +135,7 @@ Rules:
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: instructions },
-        { role: "user", content: "Course: " + courseName + "\nFaculty: " + facultyName + "\nDate: " + (lectureDate || "unknown") + "\n\nTRANSCRIPT:\n" + transcript.slice(0, 90000) }
+        { role: "user", content: "Course: " + courseName + "\nFaculty: " + facultyName + "\nDate: " + (lectureDate || "unknown") + "\n\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\n" + cumulativeContext + "\n\nTRANSCRIPT:\n" + transcript.slice(0, 90000) }
       ]
     });
     const raw = completion.choices[0]?.message?.content || "{}";
