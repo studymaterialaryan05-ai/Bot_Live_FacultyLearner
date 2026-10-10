@@ -40,6 +40,30 @@ drop policy if exists "Users can delete their own lectures" on public.lectures;
 create policy "Users can delete their own lectures" on public.lectures
   for delete to authenticated using (auth.uid() = user_id);
 
+
+-- Cumulative faculty teaching profile, scoped to one user/course/faculty combination.
+create table if not exists public.faculty_profiles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  course_name text not null,
+  faculty_name text not null,
+  profile jsonb not null default '{}'::jsonb,
+  lectures_analysed integer not null default 0,
+  updated_at timestamptz not null default now(),
+  unique(user_id, course_name, faculty_name)
+);
+
+alter table public.faculty_profiles enable row level security;
+drop policy if exists "Users can view their own faculty profiles" on public.faculty_profiles;
+create policy "Users can view their own faculty profiles" on public.faculty_profiles
+  for select to authenticated using (auth.uid() = user_id);
+drop policy if exists "Users can insert their own faculty profiles" on public.faculty_profiles;
+create policy "Users can insert their own faculty profiles" on public.faculty_profiles
+  for insert to authenticated with check (auth.uid() = user_id);
+drop policy if exists "Users can update their own faculty profiles" on public.faculty_profiles;
+create policy "Users can update their own faculty profiles" on public.faculty_profiles
+  for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- Private audio bucket. Files are stored under {auth.uid()}/...
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('lecture-audio', 'lecture-audio', false, 524288000,
