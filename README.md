@@ -5,8 +5,8 @@ FacultyLens AI turns MBA lecture recordings into searchable transcripts, structu
 ## Current MVP
 - Email magic-link sign-in through Supabase Auth
 - Upload audio directly to private Supabase Storage
-- Transcription with OpenAI audio transcription
-- Structured lecture analysis and study materials with OpenAI
+- Transcription with Groq Whisper
+- Structured lecture analysis and study materials with Groq
 - Optional external source discovery through Tavily Search
 - Saved lecture history in Supabase
 - Faculty/course tags to support cumulative analysis over time
