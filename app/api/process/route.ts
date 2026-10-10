@@ -146,7 +146,7 @@ Rules:
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: instructions },
-          { role: "user", content: "Course: " + courseName + "\\nFaculty: " + facultyName + "\\nDate: " + (lectureDate || "unknown") + "\\n\\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\\n" + cumulativeContext + "\\n\\nTRANSCRIPT:\\n" + transcript.slice(0, 90000) }
+          { role: "user", content: "Course: " + courseName + "\nFaculty: " + facultyName + "\nDate: " + (lectureDate || "unknown") + "\n\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\n" + cumulativeContext + "\n\nTRANSCRIPT:\n" + transcript.slice(0, 90000) }
         ]
       }),
       signal: AbortSignal.timeout(240000)
