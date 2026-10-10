@@ -51,7 +51,7 @@ export default function Home() {
     e.preventDefault();
     if (!session?.access_token) return setNotice("Please sign in first.", "error");
     if (!file || !course.trim() || !faculty.trim()) return setNotice("Add a recording, course name, and faculty name.", "error");
-    if (file.size > 500 * 1024 * 1024) return setNotice("This recording exceeds the 500 MB configured upload limit.", "error");
+    if (file.size > 24 * 1024 * 1024) return setNotice("This recording is over 24 MB. The current transcription API limit requires a smaller file. Compress it or split it into shorter parts, then upload each part as a separate lecture segment.", "error");
     setBusy(true); setNotice("Uploading audio securely…");
     try {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -108,7 +108,7 @@ export default function Home() {
                 <div className="field"><label>Faculty name *</label><input required value={faculty} onChange={e=>setFaculty(e.target.value)} placeholder="e.g. Professor Sharma"/></div>
                 <div className="field full"><label>Lecture date</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
               </div>
-              <div className="drop"><p style={{fontWeight:700,fontSize:13,marginTop:0}}>Choose your lecture recording</p><p className="muted">MP3, M4A, WAV, WebM or supported audio/video formats. Max 500 MB storage upload.</p><input id="audio-file" type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm" onChange={e=>setFile(e.target.files?.[0] || null)}/>{file && <p className="muted">{file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB</p>}</div>
+              <div className="drop"><p style={{fontWeight:700,fontSize:13,marginTop:0}}>Choose your lecture recording</p><p className="muted">MP3, M4A, WAV, WebM or supported audio/video formats. For this MVP, each audio file must be 24 MB or smaller. Larger recordings should be split into parts first.</p><input id="audio-file" type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm" onChange={e=>setFile(e.target.files?.[0] || null)}/>{file && <p className="muted">{file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB</p>}</div>
               <div className="actions"><button className="btn" disabled={busy}>{busy ? "Working…" : "Upload and analyse lecture"}</button></div>
               {message && <div className={"notice " + messageType}>{message}</div>}
             </form>
