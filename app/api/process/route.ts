@@ -41,6 +41,26 @@ export async function POST(req: NextRequest) {
   if (insertError || !lecture) return jsonError("Could not create the lecture record. Confirm that supabase/schema.sql has been run.", 500);
 
   try {
+    const [{ data: previousLectures }, { data: existingProfile }] = await Promise.all([
+      admin.from("lectures").select("lecture_date,created_at,analysis").eq("user_id", userId)
+        .eq("course_name", String(courseName).slice(0, 180)).eq("faculty_name", String(facultyName).slice(0, 180))
+        .eq("status", "completed").order("created_at", { ascending: false }).limit(8),
+      admin.from("faculty_profiles").select("profile,lectures_analysed").eq("user_id", userId)
+        .eq("course_name", String(courseName).slice(0, 180)).eq("faculty_name", String(facultyName).slice(0, 180)).maybeSingle()
+    ]);
+    const cumulativeContext = JSON.stringify({
+      existingFacultyProfile: existingProfile?.profile || null,
+      numberOfEarlierLecturesAnalysed: existingProfile?.lectures_analysed || 0,
+      earlierLectureEvidence: (previousLectures || []).map((l: any) => ({
+        lecture_date: l.lecture_date || l.created_at,
+        executive_summary: l.analysis?.executive_summary,
+        topics: l.analysis?.topics,
+        concepts: (l.analysis?.concepts || []).map((x: any) => ({ name: x.name, evidence: x.evidence })),
+        faculty_signals: l.analysis?.faculty_signals,
+        exam_questions: (l.analysis?.exam_questions || []).map((x: any) => ({ question: x.question, format: x.format, priority: x.priority, evidence: x.evidence })),
+        faculty_profile_update: l.analysis?.faculty_profile_update
+      }))
+    });
     const { data: audioBlob, error: downloadError } = await admin.storage.from("lecture-audio").download(audioPath);
     if (downloadError || !audioBlob) throw new Error("Could not retrieve the uploaded recording from private storage.");
     if (audioBlob.size > 24 * 1024 * 1024) throw new Error("This recording is over 24 MB. The current transcription API limit requires a smaller file. Compress it or split it into shorter parts, then upload each part as a separate lecture segment.");
@@ -100,7 +120,7 @@ Rules:
 - In each concept's evidence, quote or precisely paraphrase the relevant lecture point. Mark ambiguity in uncertainties.
 - Distinguish lecture-grounded content from outside context. Use only the provided web search results as candidate sources; include only relevant sources with valid URLs. Do not fabricate citations or books.
 - Create at least 5 concepts when the transcript supports them, 3 examples, 8 exam questions across mixed formats, 8 MCQs, and a meaningful applied assignment. If the lecture is short, generate fewer and explain the limitation in the summary.
-- Faculty signals must be observable, evidence-based teaching signals, not claims about private psychology. Label explicit statements as explicit and inferred patterns from this one lecture as tentative. Do not call a one-off event a proven pattern.
+- Faculty signals must be observable, evidence-based teaching signals, not claims about private psychology. Label explicit statements as explicit and inferred patterns from this one lecture as tentative. Do not call a one-off event a proven pattern.\n- CUMULATIVE CONTEXT from earlier recordings of this same course and faculty is supplied with the transcript. Merge the previous profile carefully with the new evidence. Do not erase a prior pattern without explaining conflicting evidence. Distinguish recurring signals across multiple lectures from single-lecture observations. Include dates and evidence in the evidence ledger. If no prior recordings exist, explicitly state that the profile is preliminary.
 - Exam questions are revision priorities, not leaked or guaranteed questions. Never claim certainty about future exam papers.
 - Do not manufacture past-exam patterns when no past papers are provided.
 - Use Indian business, rural management and public-sector examples where they genuinely fit, without forcing them.
@@ -121,6 +141,17 @@ Rules:
     let analysis: any;
     try { analysis = JSON.parse(raw); } catch { throw new Error("The analysis service returned an invalid format. Please retry."); }
     analysis.sources = Array.isArray(analysis.sources) ? analysis.sources : webSources.map((s:any)=>({title:s.title,url:s.url,summary:s.summary}));
+    if (analysis.faculty_profile_update) {
+      const { error: profileError } = await admin.from("faculty_profiles").upsert({
+        user_id: userId,
+        course_name: String(courseName).slice(0, 180),
+        faculty_name: String(facultyName).slice(0, 180),
+        profile: analysis.faculty_profile_update,
+        lectures_analysed: Number(existingProfile?.lectures_analysed || 0) + 1,
+        updated_at: new Date().toISOString()
+      }, { onConflict: "user_id,course_name,faculty_name" });
+      if (profileError) throw new Error("The lecture was analysed, but the cumulative faculty profile could not be saved. Run the latest supabase/schema.sql.");
+    }
     const { data: saved, error: saveError } = await admin.from("lectures").update({
       status: "completed", transcript, analysis, error_message: null, updated_at: new Date().toISOString()
     }).eq("id", lecture.id).eq("user_id", userId).select("*").single();
