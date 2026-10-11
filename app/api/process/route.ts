@@ -61,6 +61,10 @@ export async function POST(req: NextRequest) {
     });
     const mergedTranscript = String(transcript).trim();
     if (!mergedTranscript) throw new Error("The merged transcript is empty.");
+    const { error: transcriptSaveError } = await admin.from("lectures").update({
+      transcript: mergedTranscript, updated_at: new Date().toISOString()
+    }).eq("id", lecture.id).eq("user_id", userId);
+    if (transcriptSaveError) throw new Error("The transcript could not be saved before analysis.");
 
     let webSources: any[] = [];
     if (process.env.TAVILY_API_KEY) {
