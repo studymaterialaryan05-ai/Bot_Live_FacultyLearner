@@ -17,24 +17,24 @@ function jsonError(message: string, status = 400) {
 }
 
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const now = Date.now();
-  const recent = (requestCounts.get(ip) || []).filter((time) => now - time < 60 * 60 * 1000);
-  if (recent.length >= 3) return jsonError("Free upload limit reached for this network. Please try again in an hour.", 429);
-  recent.push(now);
-  requestCounts.set(ip, recent);
   if (!supabaseUrl || !serviceKey || !groqKey) return jsonError("Server setup is incomplete. Check Supabase and Groq environment variables in Vercel.", 500);
   let body: any;
   try { body = await req.json(); } catch { return jsonError("Invalid request body."); }
-  const { audioPath, workspaceId, filename, courseName, facultyName, lectureDate } = body || {};
-  if (!audioPath || !workspaceId || !filename || !courseName || !facultyName) return jsonError("Audio path, workspace, filename, course and faculty are required.");
-  if (!/^[0-9a-f-]{36}$/i.test(String(workspaceId)) || !String(audioPath).startsWith("public/" + workspaceId + "/") || String(audioPath).includes("..")) return jsonError("Invalid workspace or audio path.", 403);
-  const userId = String(workspaceId);
-
+  const { filename, courseName, facultyName, lectureDate, transcript } = body || {};
+  if (!filename || !courseName || !facultyName || !transcript || typeof transcript !== "string") return jsonError("Filename, course, faculty and merged transcript are required.");
+  if (transcript.length > 500000) return jsonError("The merged transcript is too large to analyse in one request.");
+  const bearer = req.headers.get("authorization") || "";
+  const token = bearer.startsWith("Bearer ") ? bearer.slice(7) : "";
+  if (!token) return jsonError("Please sign in before processing a lecture.", 401);
+  const authClient = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "", { auth: { persistSession: false } });
+  const { data: authData, error: authError } = await authClient.auth.getUser(token);
+  const allowedEmail = (process.env.ALLOWED_USER_EMAIL || "").trim().toLowerCase();
+  if (authError || !authData.user || !allowedEmail || authData.user.email?.toLowerCase() !== allowedEmail) return jsonError("This account is not authorised to use this private workspace.", 403);
+  const userId = authData.user.id;
   const admin = adminClient();
   const { data: lecture, error: insertError } = await admin.from("lectures").insert({
     user_id: userId, course_name: String(courseName).slice(0, 180), faculty_name: String(facultyName).slice(0, 180),
-    lecture_date: lectureDate || null, audio_path: audioPath, audio_filename: String(filename).slice(0, 255), status: "processing"
+    lecture_date: lectureDate || null, audio_path: null, audio_filename: String(filename).slice(0, 255), status: "processing"
   }).select("*").single();
   if (insertError || !lecture) return jsonError("Could not create the lecture record. Confirm that supabase/schema.sql has been run.", 500);
 
@@ -59,32 +59,8 @@ export async function POST(req: NextRequest) {
         faculty_profile_update: l.analysis?.faculty_profile_update
       }))
     });
-    const { data: audioBlob, error: downloadError } = await admin.storage.from("lecture-audio").download(audioPath);
-    if (downloadError || !audioBlob) throw new Error("Could not retrieve the uploaded recording from private storage.");
-    if (audioBlob.size > 24 * 1024 * 1024) throw new Error("This recording is over 24 MB. The current transcription API limit requires a smaller file. Compress it or split it into shorter parts, then upload each part as a separate lecture segment.");
-
-    const buffer = Buffer.from(await audioBlob.arrayBuffer());
-    const mimeType = audioBlob.type || "application/octet-stream";
-    const audioFile = new File([buffer], String(filename).replace(/[^a-zA-Z0-9._-]/g, "_"), { type: mimeType });
-    const transcriptionForm = new FormData();
-    transcriptionForm.append("file", audioFile);
-    transcriptionForm.append("model", "whisper-large-v3");
-    transcriptionForm.append("response_format", "verbose_json");
-    transcriptionForm.append("timestamp_granularities[]", "segment");
-    transcriptionForm.append("prompt", "Transcribe an MBA management lecture in an Indian classroom. Preserve business, operations, economics, finance, marketing, strategy, rural management, supply chain, quantitative methods, acronyms, company names, formulas and examples. Do not summarize or silently fill unclear speech.");
-    const transcriptionResponse = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + groqKey },
-      body: transcriptionForm,
-      signal: AbortSignal.timeout(240000)
-    });
-    if (!transcriptionResponse.ok) {
-      const detail = await transcriptionResponse.text();
-      throw new Error("Free transcription provider error (" + transcriptionResponse.status + "): " + detail.slice(0, 500));
-    }
-    const transcription: any = await transcriptionResponse.json();
-    const transcript = String(transcription.text || "").trim();
-    if (!transcript) throw new Error("The transcription service returned an empty transcript.");
+    const mergedTranscript = String(transcript).trim();
+    if (!mergedTranscript) throw new Error("The merged transcript is empty.");
 
     let webSources: any[] = [];
     if (process.env.TAVILY_API_KEY) {
@@ -93,7 +69,7 @@ export async function POST(req: NextRequest) {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             api_key: process.env.TAVILY_API_KEY,
-            query: "MBA management concepts and credible academic resources: " + String(courseName) + ". Topics discussed: " + transcript.slice(0, 900),
+            query: "MBA management concepts and credible academic resources: " + String(courseName) + ". Topics discussed: " + mergedTranscript.slice(0, 900),
             search_depth: "advanced", max_results: 5, include_answer: false
           }),
           signal: AbortSignal.timeout(20000)
@@ -145,7 +121,7 @@ Rules:
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: instructions },
-          { role: "user", content: "Course: " + courseName + "\nFaculty: " + facultyName + "\nDate: " + (lectureDate || "unknown") + "\n\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\n" + cumulativeContext + "\n\nTRANSCRIPT:\n" + transcript.slice(0, 90000) }
+          { role: "user", content: "Course: " + courseName + "\nFaculty: " + facultyName + "\nDate: " + (lectureDate || "unknown") + "\n\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\n" + cumulativeContext + "\n\nTRANSCRIPT:\n" + mergedTranscript.slice(0, 90000) }
         ]
       }),
       signal: AbortSignal.timeout(240000)
@@ -171,7 +147,7 @@ Rules:
       if (profileError) throw new Error("The lecture was analysed, but the cumulative faculty profile could not be saved. Run the latest supabase/schema.sql.");
     }
     const { data: saved, error: saveError } = await admin.from("lectures").update({
-      status: "completed", transcript, analysis, error_message: null, updated_at: new Date().toISOString()
+      status: "completed", transcript: mergedTranscript, analysis, error_message: null, updated_at: new Date().toISOString()
     }).eq("id", lecture.id).eq("user_id", userId).select("*").single();
     if (saveError || !saved) throw new Error("The transcript was created but could not be saved to the database.");
     return NextResponse.json({ lecture: saved });
