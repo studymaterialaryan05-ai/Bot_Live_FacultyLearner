@@ -17,7 +17,7 @@ function jsonError(message: string, status = 400) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!supabaseUrl || !serviceKey || !groqKey) return jsonError("Server setup is incomplete. Check Supabase and Groq environment variables in Vercel.", 500);
+  if (!supabaseUrl || !serviceKey || !groqKey || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return jsonError("Server setup is incomplete. Check Supabase and Groq environment variables in Vercel.", 500);
   let body: any;
   try { body = await req.json(); } catch { return jsonError("Invalid request body."); }
   const { filename, courseName, facultyName, lectureDate, transcript } = body || {};
