@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 export const maxDuration = 300;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const groqKey = process.env.GROQ_API_KEY!
 
@@ -16,23 +15,16 @@ function jsonError(message: string, status = 400) {
 }
 
 export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get("authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  if (!token) return jsonError("Sign in before processing a lecture.", 401);
-  if (!supabaseUrl || !anonKey || !serviceKey || !groqKey) return jsonError("Server setup is incomplete. Add Supabase and Groq environment variables in Vercel.", 500);
-
-  const authClient = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: authData, error: authError } = await authClient.auth.getUser(token);
-  if (authError || !authData.user) return jsonError("Your session has expired. Sign in again.", 401);
+  if (!supabaseUrl || !serviceKey || !groqKey) return jsonError("Server setup is incomplete. Check Supabase and Groq environment variables in Vercel.", 500);
+  const userId = "00000000-0000-0000-0000-000000000000";
 
   let body: any;
   try { body = await req.json(); } catch { return jsonError("Invalid request body."); }
   const { audioPath, filename, courseName, facultyName, lectureDate } = body || {};
   if (!audioPath || !filename || !courseName || !facultyName) return jsonError("Audio path, filename, course and faculty are required.");
-  if (!String(audioPath).startsWith(authData.user.id + "/") || String(audioPath).includes("..")) return jsonError("Invalid audio path.", 403);
+  if (!String(audioPath).startsWith("public/") || String(audioPath).includes("..")) return jsonError("Invalid audio path.", 403);
 
   const admin = adminClient();
-  const userId = authData.user.id;
   const { data: lecture, error: insertError } = await admin.from("lectures").insert({
     user_id: userId, course_name: String(courseName).slice(0, 180), faculty_name: String(facultyName).slice(0, 180),
     lecture_date: lectureDate || null, audio_path: audioPath, audio_filename: String(filename).slice(0, 255), status: "processing"
