@@ -103,7 +103,7 @@ export default function Home() {
       await ffmpeg.load({ coreURL: await toBlobURL(base + "/ffmpeg-core.js","text/javascript"), wasmURL: await toBlobURL(base + "/ffmpeg-core.wasm","application/wasm") });
       setProgressLabel("Splitting and compressing audio in your browser…");
       await ffmpeg.writeFile("source-audio", await fetchFile(file));
-      const code = await ffmpeg.exec(["-i","source-audio","-vn","-map","0:a:0","-f","segment","-segment_time","1200","-reset_timestamps","1","-c:a","libmp3lame","-b:a","64k","-ac","1","-ar","16000","part-%03d.mp3"]);
+      const code = await ffmpeg.exec(["-i","source-audio","-vn","-map","0:a:0","-f","segment","-segment_time","600","-reset_timestamps","1","-c:a","libmp3lame","-b:a","64k","-ac","1","-ar","16000","part-%03d.mp3"]);
       if (code !== 0) throw new Error("The browser audio splitter could not process this file. Try MP3, M4A or WAV.");
       const entries = await ffmpeg.listDir("/");
       const names = entries.filter((x:any)=>x.name.startsWith("part-")&&x.name.endsWith(".mp3")).map((x:any)=>x.name).sort();
