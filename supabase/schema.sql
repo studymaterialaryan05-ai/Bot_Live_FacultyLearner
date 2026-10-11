@@ -111,6 +111,14 @@ create policy "Users delete own lecture audio" on storage.objects
     bucket_id = 'lecture-audio' and (storage.foldername(name))[1] = auth.uid()::text
   );
 
+drop policy if exists "Users update own lecture audio" on storage.objects;
+create policy "Users update own lecture audio" on storage.objects
+  for update to authenticated using (
+    bucket_id = 'lecture-audio' and (storage.foldername(name))[1] = auth.uid()::text
+  ) with check (
+    bucket_id = 'lecture-audio' and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
 update storage.buckets
 set public = false, file_size_limit = 20971520
 where id = 'lecture-audio';
