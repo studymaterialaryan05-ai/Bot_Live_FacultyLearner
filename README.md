@@ -69,7 +69,7 @@ Deployment trigger check for Vercel.
 
 ## Large recording workflow (browser-side splitting)
 
-- The browser uses single-threaded FFmpeg.wasm to convert recordings into sequential 20-minute mono MP3 chunks at 64 kbps / 16 kHz.
+- The browser uses single-threaded FFmpeg.wasm to convert recordings into sequential 10-minute mono MP3 chunks at 64 kbps / 16 kHz.
 - Each generated chunk is checked to be below 20 MB before upload.
 - Chunks are uploaded to the private `lecture-audio` bucket under the signed-in user's UUID, transcribed one at a time with Groq Whisper, and deleted immediately after a successful transcription.
 - Transcript fragments are merged in original chunk order and saved before the study-pack analysis starts. If analysis fails, the transcript remains saved.
