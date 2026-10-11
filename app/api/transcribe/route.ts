@@ -51,5 +51,6 @@ export async function POST(req: NextRequest) {
   }
   const result: any = await response.json();
   if (!String(result.text || "").trim()) return fail("Groq returned an empty transcript.", 502);
-  return NextResponse.json({ text: String(result.text).trim(), segments: result.segments || [] });
+  const { error: cleanupError } = await admin.storage.from("lecture-audio").remove([path]);
+  return NextResponse.json({ text: String(result.text).trim(), segments: result.segments || [], audioDeleted: !cleanupError });
 }
