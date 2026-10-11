@@ -79,7 +79,7 @@ export default function Home() {
       if (result.lecture) { setLectures(prev => [result.lecture, ...prev].slice(0,20)); setSelected(result.lecture); }
     } catch (err: any) {
       setNotice(err?.message || "Processing failed. Retry the failed chunk.", "error");
-      setFailedJob({ ...job, transcripts: transcriptParts, nextIndex: transcriptParts.findIndex((x,i)=>!x && i>=job.nextIndex) < 0 ? job.nextIndex : transcriptParts.findIndex((x,i)=>!x && i>=job.nextIndex) });
+      setFailedJob({ ...job, transcripts: transcriptParts, nextIndex: (() => { const missing = transcriptParts.findIndex((x,i)=>!x && i>=job.nextIndex); return missing < 0 ? job.chunks.length : missing; })() });
     } finally { setBusy(false); }
   }
 
@@ -92,6 +92,7 @@ export default function Home() {
       const { FFmpeg } = await import("@ffmpeg/ffmpeg");
       const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
       const ffmpeg = new FFmpeg();
+      ffmpeg.on("progress", ({ progress: ratio }) => { setProgress(Math.max(0, Math.min(25, Math.round(ratio * 25)))); });
       const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd";
       await ffmpeg.load({ coreURL: await toBlobURL(base + "/ffmpeg-core.js","text/javascript"), wasmURL: await toBlobURL(base + "/ffmpeg-core.wasm","application/wasm") });
       setProgressLabel("Splitting and compressing audio in your browser…");
@@ -122,7 +123,7 @@ export default function Home() {
     </header>
 
     <section className="hero">
-      <div><div className="eyebrow">Open academic learning workspace</div><h2>Turn every lecture into a learning advantage.</h2><p>Capture what was said, understand what it means, connect it to management theory, and practise applying it. Upload without creating an account. Your notes remain in this browser session.</p></div>
+      <div><div className="eyebrow">Open academic learning workspace</div><h2>Turn every lecture into a learning advantage.</h2><p>Capture what was said, understand what it means, connect it to management theory, and practise applying it. Sign in to your private owner workspace to save transcripts and study modules.</p></div>
       <div className="hero-stat"><strong>{lectures.length.toString().padStart(2, "0")}</strong><span>recordings in your library<br/>Your processed lectures appear here during this session.</span></div>
     </section>
 
