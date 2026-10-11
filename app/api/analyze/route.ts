@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
         const note = await ask([{ role:"system", content:extractionSystem },{ role:"user", content:"Lecture excerpt "+(i+1)+" of "+parts.length+":\n"+parts[i] }], 1300);
         const notes = [...(p.notes || []), note];
         const next = { ...p, next:i+1, notes, total:parts.length, stage:i+1 >= parts.length ? "reduce" : "extract", reduceLevel:0, reduceNext:0, reduceNotes:notes };
-        await db.from("lectures").update({ analysis_progress:next, updated_at:new Date().toISOString() }).eq("id",lecture.id).eq("user_id",user.id);
+        await db.from("lectures").update({ status:"processing", error_message:null, analysis_progress:next, updated_at:new Date().toISOString() }).eq("id",lecture.id).eq("user_id",user.id);
         return NextResponse.json({ done:false, stage:next.stage, completed:i+1, total:parts.length, message:"Extracted transcript section "+(i+1)+" of "+parts.length });
       }
       p.stage = "reduce"; p.reduceNotes = p.notes || []; p.reduceLevel = 0; p.reduceNext = 0;
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
           const nextNotes = [...(p.nextReduced || []), merged];
           const next = { ...p, reduceNext:idx+1, nextReduced:nextNotes, total:groups.length };
           if (idx+1 >= groups.length) { next.reduceNotes=nextNotes; next.reduceLevel=Number(p.reduceLevel||0)+1; next.reduceNext=0; next.nextReduced=[]; }
-          await db.from("lectures").update({analysis_progress:next,updated_at:new Date().toISOString()}).eq("id",lecture.id).eq("user_id",user.id);
+          await db.from("lectures").update({status:"processing",error_message:null,analysis_progress:next,updated_at:new Date().toISOString()}).eq("id",lecture.id).eq("user_id",user.id);
           return NextResponse.json({done:false,stage:"reduce",completed:idx+1,total:groups.length,message:"Consolidated analysis group "+(idx+1)+" of "+groups.length});
         }
       }
