@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     const [{ data: previousLectures }, { data: existingProfile }] = await Promise.all([
       admin.from("lectures").select("lecture_date,created_at,analysis").eq("user_id", userId)
         .eq("course_name", String(courseName).slice(0, 180)).eq("faculty_name", String(facultyName).slice(0, 180))
-        .eq("status", "completed").order("created_at", { ascending: false }).limit(8),
+        .eq("status", "completed").order("created_at", { ascending: false }).limit(3),
       admin.from("faculty_profiles").select("profile,lectures_analysed").eq("user_id", userId)
         .eq("course_name", String(courseName).slice(0, 180)).eq("faculty_name", String(facultyName).slice(0, 180)).maybeSingle()
     ]);
@@ -52,10 +52,10 @@ export async function POST(req: NextRequest) {
       earlierLectureEvidence: (previousLectures || []).map((l: any) => ({
         lecture_date: l.lecture_date || l.created_at,
         executive_summary: l.analysis?.executive_summary,
-        topics: l.analysis?.topics,
-        concepts: (l.analysis?.concepts || []).map((x: any) => ({ name: x.name, evidence: x.evidence })),
-        faculty_signals: l.analysis?.faculty_signals,
-        exam_questions: (l.analysis?.exam_questions || []).map((x: any) => ({ question: x.question, format: x.format, priority: x.priority, evidence: x.evidence })),
+        topics: (l.analysis?.topics || []).slice(0, 8),
+        concepts: (l.analysis?.concepts || []).slice(0, 5).map((x: any) => ({ name: x.name, evidence: String(x.evidence || "").slice(0, 180) })),
+        faculty_signals: (l.analysis?.faculty_signals || []).slice(0, 4),
+        exam_questions: (l.analysis?.exam_questions || []).slice(0, 4).map((x: any) => ({ question: x.question, format: x.format, priority: x.priority })),
         faculty_profile_update: l.analysis?.faculty_profile_update
       }))
     });
@@ -113,7 +113,7 @@ Rules:
 - Do not manufacture past-exam patterns when no past papers are provided.
 - Use Indian business, rural management and public-sector examples where they genuinely fit, without forcing them.
 - Use plain, clear prose and avoid filler.
-- The transcript may contain transcription errors. If a term appears suspicious, flag it rather than silently correcting it.
+- The transcript may contain transcription errors. If a term appears suspicious, flag it rather than silently correcting it. Keep the analysis concise and prioritise coverage of the transcript over lengthy prose.
 - The provided sources are: ${JSON.stringify(webSources)}`;
 
     const completionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -125,7 +125,7 @@ Rules:
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: instructions },
-          { role: "user", content: "Course: " + courseName + "\nFaculty: " + facultyName + "\nDate: " + (lectureDate || "unknown") + "\n\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\n" + cumulativeContext + "\n\nTRANSCRIPT:\n" + mergedTranscript.slice(0, 90000) }
+          { role: "user", content: "Course: " + courseName + "\nFaculty: " + facultyName + "\nDate: " + (lectureDate || "unknown") + "\n\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\n" + cumulativeContext + "\n\nTRANSCRIPT (analysis input is capped at 65,000 characters to fit the free-tier model token limit; the complete transcript remains saved above):\n" + mergedTranscript.slice(0, 65000) }
         ]
       }),
       signal: AbortSignal.timeout(55000)
