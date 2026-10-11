@@ -65,3 +65,27 @@ Install Node.js LTS, clone the repository, run `npm install`, copy `.env.example
 Use Groq's free developer API key for both transcription and structured analysis. Keep Tavily optional, as it has its own usage quota. Vercel Hobby and Supabase Free are intended for personal/small projects, subject to their current usage limits. Do not enable billing or upgrade prompts if you want to maintain a ₹0 budget.
 
 Deployment trigger check for Vercel.
+
+
+## Large recording workflow (browser-side splitting)
+
+- The browser uses single-threaded FFmpeg.wasm to convert recordings into sequential 20-minute mono MP3 chunks at 64 kbps / 16 kHz.
+- Each generated chunk is checked to be below 20 MB before upload.
+- Chunks are uploaded to the private `lecture-audio` bucket under the signed-in user's UUID, transcribed one at a time with Groq Whisper, and deleted immediately after a successful transcription.
+- Transcript fragments are merged in original chunk order and saved before the study-pack analysis starts. If analysis fails, the transcript remains saved.
+- Transient chunk retries are available in the same browser session. Keep the tab open until processing finishes or retry completes.
+- The FFmpeg core is loaded from jsDelivr at runtime. The app itself does not send the original 175 MB file to Vercel.
+
+### Private single-owner configuration
+
+Set the following Vercel environment variable in addition to the existing Supabase and Groq variables:
+
+- `ALLOWED_USER_EMAIL`: the one email address authorised to use this workspace.
+
+In Supabase Auth settings, disable public sign-ups. Keep the authorised owner account already created in Supabase Auth (or create it manually in the dashboard before disabling sign-ups). The server rejects requests unless the authenticated email exactly matches `ALLOWED_USER_EMAIL`.
+
+Run the updated `supabase/schema.sql` in the Supabase SQL Editor. It restores authenticated-only storage policies, removes the anonymous upload policy, keeps the bucket private, sets the per-object limit to 20 MB, and makes `audio_path` nullable because successful lectures retain transcripts rather than audio.
+
+### Free-tier considerations
+
+Audio splitting runs on the user's device. Groq transcription and analysis still consume the free-tier API quota and are subject to current rate limits. A long 175 MB recording may take substantial time and browser memory; keep the tab open and use a desktop browser. The FFmpeg core download requires an internet connection.
