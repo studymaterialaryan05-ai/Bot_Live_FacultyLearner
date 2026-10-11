@@ -35,6 +35,12 @@ export default function Home() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     return () => listener.subscription.unsubscribe();
   }, []);
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    supabase.from("lectures").select("*").order("created_at", { ascending: false }).limit(20).then(({ data, error }) => {
+      if (!error && data) setLectures(data as Lecture[]);
+    });
+  }, [session?.user?.id]);
   async function sendMagicLink(e: React.FormEvent) {
     e.preventDefault(); setAuthBusy(true); setNotice("");
     const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: window.location.origin } });
@@ -104,7 +110,7 @@ export default function Home() {
       if (!names.length) throw new Error("No audio chunks were created. Check that the file contains an audio track.");
       const chunks: Blob[] = [];
       for (const name of names) {
-        const data = await ffmpeg.readFile(name); const chunk = new Blob([data as Uint8Array],{type:"audio/mpeg"});
+        const data = await ffmpeg.readFile(name); const bytes = data as Uint8Array; const safeBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer; const chunk = new Blob([safeBuffer],{type:"audio/mpeg"});
         if (chunk.size >= 20*1024*1024) throw new Error("A generated chunk reached 20 MB. Please try a lower-bitrate source.");
         chunks.push(chunk);
       }
@@ -145,7 +151,7 @@ export default function Home() {
             <div className="notice">Private single-user workspace. Temporary audio chunks are deleted after successful transcription. Transcripts and study modules are saved. Upload only recordings you are permitted to use.</div>
           </div>
           <div className="panel">
-            <h4>This session’s lecture library</h4><p className="muted">Open a processed lecture during this browser session. Refreshing the page clears this temporary list.</p>
+            <h4>This session’s lecture library</h4><p className="muted">Your latest saved lectures are loaded from your private account.</p>
             <div className="list">{lectures.length ? lectures.map(l=><button key={l.id} className="lecture" style={{background:selected?.id===l.id?"#f4f8f4":"white",textAlign:"left",width:"100%"}} onClick={()=>setSelected(l)}>
               <div><h5>{l.course_name}</h5><p>{l.faculty_name} · {l.lecture_date || new Date(l.created_at).toLocaleDateString()}<br/>{l.audio_filename}</p></div><span className={"pill " + l.status}>{l.status}</span>
             </button>) : <div className="empty">No lectures processed in this session yet. Upload your first recording to begin.</div>}</div>
