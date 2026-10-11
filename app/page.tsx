@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createBrowserSupabase } from "@/lib/supabase";
 
 type Lecture = {
@@ -13,6 +13,12 @@ const supabase = createBrowserSupabase();
 
 export default function Home() {
 
+  const [session, setSession] = useState<any>(null);
+  const [email, setEmail] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
+  const [failedJob, setFailedJob] = useState<any>(null);
   const [course, setCourse] = useState("");
   const [faculty, setFaculty] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -24,43 +30,95 @@ export default function Home() {
   const [messageType, setMessageType] = useState("");
 
   function setNotice(text: string, type = "") { setMessage(text); setMessageType(type); }
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+  async function sendMagicLink(e: React.FormEvent) {
+    e.preventDefault(); setAuthBusy(true); setNotice("");
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: window.location.origin } });
+    setAuthBusy(false); setNotice(error ? error.message : "Check your inbox for your private sign-in link.", error ? "error" : "success");
+  }
+  async function resumeJob(job: any) {
+    setBusy(true); setFailedJob(null);
+    let transcriptParts: string[] = [...job.transcripts];
+    try {
+      const token = session?.access_token;
+      if (!token) throw new Error("Your sign-in session expired. Sign in again.");
+      for (let i = job.nextIndex; i < job.chunks.length; i++) {
+        const chunk = job.chunks[i];
+        const path = job.userId + "/" + job.jobId + "/chunk-" + String(i + 1).padStart(3, "0") + ".mp3";
+        setProgressLabel("Uploading chunk " + (i + 1) + " of " + job.chunks.length);
+        const { error: uploadError } = await supabase.storage.from("lecture-audio").upload(path, chunk, { contentType: "audio/mpeg", upsert: true });
+        if (uploadError) throw new Error(uploadError.message);
+        let response: Response | null = null; let lastError = "";
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          setProgressLabel("Transcribing chunk " + (i + 1) + " of " + job.chunks.length + " · attempt " + attempt + "/3");
+          response = await fetch("/api/transcribe", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ audioPath: path }) });
+          if (response.ok) break;
+          const detail = await response.json().catch(() => ({})); lastError = detail.error || "Transcription failed.";
+          if (response.status !== 429 && response.status < 500) break;
+          await new Promise(resolve => setTimeout(resolve, attempt * 2500));
+        }
+        if (!response?.ok) throw new Error(lastError || "Chunk " + (i + 1) + " failed.");
+        const data = await response.json(); transcriptParts[i] = String(data.text || "").trim();
+        const { error: cleanupError } = await supabase.storage.from("lecture-audio").remove([path]);
+        if (cleanupError) console.warn("Temporary chunk cleanup failed:", cleanupError.message);
+        setProgress(Math.round(((i + 1) / job.chunks.length) * 90));
+        setFailedJob({ ...job, transcripts: transcriptParts, nextIndex: i + 1 });
+      }
+      const merged = transcriptParts.filter(Boolean).join("\n\n");
+      if (!merged) throw new Error("No transcript text was returned.");
+      setProgressLabel("Building the study module…");
+      const response = await fetch("/api/process", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ filename: job.filename, courseName: job.courseName, facultyName: job.facultyName, lectureDate: job.lectureDate, transcript: merged }) });
+      const result = await response.json(); if (!response.ok) throw new Error(result.error || "Lecture analysis failed.");
+      setNotice("Lecture processed successfully. Temporary audio chunks have been removed.", "success");
+      setProgress(100); setProgressLabel("Completed"); setFile(null); setFailedJob(null);
+      const picker = document.getElementById("audio-file") as HTMLInputElement | null; if (picker) picker.value = "";
+      if (result.lecture) { setLectures(prev => [result.lecture, ...prev].slice(0,20)); setSelected(result.lecture); }
+    } catch (err: any) {
+      setNotice(err?.message || "Processing failed. Retry the failed chunk.", "error");
+      setFailedJob({ ...job, transcripts: transcriptParts, nextIndex: transcriptParts.findIndex((x,i)=>!x && i>=job.nextIndex) < 0 ? job.nextIndex : transcriptParts.findIndex((x,i)=>!x && i>=job.nextIndex) });
+    } finally { setBusy(false); }
+  }
 
   async function uploadAndProcess(e: React.FormEvent) {
     e.preventDefault();
     if (!file || !course.trim() || !faculty.trim()) return setNotice("Add a recording, course name, and faculty name.", "error");
-    if (file.size > 24 * 1024 * 1024) return setNotice("This recording is over 24 MB. The current transcription API limit requires a smaller file. Compress it or split it into shorter parts, then upload each part as a separate lecture segment.", "error");
-    setBusy(true); setNotice("Uploading audio securely…");
+    if (!session?.user?.id) return setNotice("Sign in before uploading.", "error");
+    setBusy(true); setProgress(0); setProgressLabel("Preparing browser audio splitter…"); setNotice("Preparing your recording…");
     try {
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      let workspaceId = localStorage.getItem("facultyLensWorkspaceId");
-      if (!workspaceId) { workspaceId = crypto.randomUUID(); localStorage.setItem("facultyLensWorkspaceId", workspaceId); }
-      const path = "public/" + workspaceId + "/" + crypto.randomUUID() + "-" + safeName;
-      const { error: uploadError } = await supabase.storage.from("lecture-audio").upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
-      if (uploadError) throw uploadError;
-      setNotice("Audio uploaded. Transcribing and analysing the lecture…");
-      const response = await fetch("/api/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audioPath: path, workspaceId, filename: file.name, courseName: course.trim(), facultyName: faculty.trim(), lectureDate: date || null })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Processing failed.");
-      setNotice("Lecture processed successfully. Your transcript and study module are ready.", "success");
-      setFile(null);
-      const picker = document.getElementById("audio-file") as HTMLInputElement | null; if (picker) picker.value = "";
-      if (result.lecture) { setLectures(prev => [result.lecture, ...prev].slice(0, 20)); setSelected(result.lecture); }
-    } catch (err: any) {
-      setNotice(err?.message || "Something went wrong. Check your settings and try again.", "error");
-
-    } finally { setBusy(false); }
+      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+      const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
+      const ffmpeg = new FFmpeg();
+      const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd";
+      await ffmpeg.load({ coreURL: await toBlobURL(base + "/ffmpeg-core.js","text/javascript"), wasmURL: await toBlobURL(base + "/ffmpeg-core.wasm","application/wasm") });
+      setProgressLabel("Splitting and compressing audio in your browser…");
+      await ffmpeg.writeFile("source-audio", await fetchFile(file));
+      const code = await ffmpeg.exec(["-i","source-audio","-vn","-map","0:a:0","-f","segment","-segment_time","1200","-reset_timestamps","1","-c:a","libmp3lame","-b:a","64k","-ac","1","-ar","16000","part-%03d.mp3"]);
+      if (code !== 0) throw new Error("The browser audio splitter could not process this file. Try MP3, M4A or WAV.");
+      const entries = await ffmpeg.listDir("/");
+      const names = entries.filter((x:any)=>x.name.startsWith("part-")&&x.name.endsWith(".mp3")).map((x:any)=>x.name).sort();
+      if (!names.length) throw new Error("No audio chunks were created. Check that the file contains an audio track.");
+      const chunks: Blob[] = [];
+      for (const name of names) {
+        const data = await ffmpeg.readFile(name); const chunk = new Blob([data as Uint8Array],{type:"audio/mpeg"});
+        if (chunk.size >= 20*1024*1024) throw new Error("A generated chunk reached 20 MB. Please try a lower-bitrate source.");
+        chunks.push(chunk);
+      }
+      await ffmpeg.deleteFile("source-audio").catch(()=>{}); for (const name of names) await ffmpeg.deleteFile(name).catch(()=>{}); ffmpeg.terminate();
+      const job = { chunks, transcripts:Array(chunks.length).fill(""), nextIndex:0, userId:session.user.id, jobId:crypto.randomUUID(), filename:file.name, courseName:course.trim(), facultyName:faculty.trim(), lectureDate:date||null };
+      setNotice("Created "+chunks.length+" chunks. Starting sequential transcription…"); await resumeJob(job);
+    } catch(err:any) { setNotice(err?.message||"Could not split this recording.", "error"); setBusy(false); }
   }
 
-
   const analysis = selected?.analysis || {};
+  if (!session) return <main className="shell"><header className="topbar"><div className="brand"><div className="brandmark">F</div><div><h1>FacultyLens AI</h1><p>Private MBA Lecture Intelligence</p></div></div></header><section className="panel" style={{maxWidth:480,margin:"10vh auto"}}><h3>Private workspace sign-in</h3><p className="muted">Only the authorised owner can access this workspace. There is no public registration.</p><form onSubmit={sendMagicLink}><div className="field"><label>Your authorised email address</label><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></div><div className="actions"><button className="btn" disabled={authBusy}>{authBusy?"Sending…":"Send private sign-in link"}</button></div>{message&&<div className={"notice "+messageType}>{message}</div>}</form></section></main>;
   return <main className="shell">
     <header className="topbar">
       <div className="brand"><div className="brandmark">F</div><div><h1>FacultyLens AI</h1><p>MBA Lecture Intelligence</p></div></div>
-      <div className="topnote">Open student workspace · No account required</div>
+      <div className="topnote">{session?.user?.email || "Private owner workspace"} · <button onClick={() => supabase.auth.signOut()}>Sign out</button></div>
     </header>
 
     <section className="hero">
@@ -79,11 +137,11 @@ export default function Home() {
                 <div className="field"><label>Faculty name *</label><input required value={faculty} onChange={e=>setFaculty(e.target.value)} placeholder="e.g. Professor Sharma"/></div>
                 <div className="field full"><label>Lecture date</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
               </div>
-              <div className="drop"><p style={{fontWeight:700,fontSize:13,marginTop:0}}>Choose your lecture recording</p><p className="muted">MP3, M4A, WAV, WebM or supported audio/video formats. For this MVP, each audio file must be 24 MB or smaller. Larger recordings should be split into parts first.</p><input id="audio-file" type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm" onChange={e=>setFile(e.target.files?.[0] || null)}/>{file && <p className="muted">{file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB</p>}</div>
+              <div className="drop"><p style={{fontWeight:700,fontSize:13,marginTop:0}}>Choose your lecture recording</p><p className="muted">MP3, M4A, WAV, WebM or supported audio/video formats. Large recordings are split in your browser into compressed chunks under 20 MB and transcribed sequentially.</p><input id="audio-file" type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm" onChange={e=>setFile(e.target.files?.[0] || null)}/>{file && <p className="muted">{file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB</p>}</div>
               <div className="actions"><button className="btn" disabled={busy}>{busy ? "Working…" : "Upload and analyse lecture"}</button></div>
-              {message && <div className={"notice " + messageType}>{message}</div>}
+              {message && <div className={"notice " + messageType}>{message}</div>}{busy && <div className="notice"><b>{progressLabel}</b><div style={{height:8,background:"#e4ebe5",borderRadius:8,marginTop:8,overflow:"hidden"}}><div style={{height:8,width:progress+"%",background:"#1f6a50"}}/></div><p>{progress}% complete</p></div>}{failedJob && !busy && <button type="button" className="btn" onClick={()=>resumeJob(failedJob)}>Retry failed chunk / continue</button>}
             </form>
-            <div className="notice">No account is required. Do not upload confidential or sensitive recordings. Upload only where permitted and with appropriate consent. AI transcripts can contain errors. Your session library clears when you refresh or close the page.</div>
+            <div className="notice">Private single-user workspace. Temporary audio chunks are deleted after successful transcription. Transcripts and study modules are saved. Upload only recordings you are permitted to use.</div>
           </div>
           <div className="panel">
             <h4>This session’s lecture library</h4><p className="muted">Open a processed lecture during this browser session. Refreshing the page clears this temporary list.</p>
