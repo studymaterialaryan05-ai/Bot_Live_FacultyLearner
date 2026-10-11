@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 
 export const maxDuration = 300;
 
+const requestCounts = new Map<string, number[]>();
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const groqKey = process.env.GROQ_API_KEY!
@@ -15,6 +17,12 @@ function jsonError(message: string, status = 400) {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const now = Date.now();
+  const recent = (requestCounts.get(ip) || []).filter((time) => now - time < 60 * 60 * 1000);
+  if (recent.length >= 3) return jsonError("Free upload limit reached for this network. Please try again in an hour.", 429);
+  recent.push(now);
+  requestCounts.set(ip, recent);
   if (!supabaseUrl || !serviceKey || !groqKey) return jsonError("Server setup is incomplete. Check Supabase and Groq environment variables in Vercel.", 500);
   const userId = "00000000-0000-0000-0000-000000000000";
 
