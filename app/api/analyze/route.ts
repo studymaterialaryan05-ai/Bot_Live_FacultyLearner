@@ -80,7 +80,12 @@ export async function POST(req: NextRequest) {
   if (body.action !== "step" || !body.lectureId) return fail("Specify action=start or action=step and a lectureId.");
   const { data: lecture, error: readError } = await db.from("lectures").select("*").eq("id", body.lectureId).eq("user_id", user.id).single();
   if (readError || !lecture || !lecture.transcript) return fail("Lecture or saved transcript not found.", 404);
-  const p = lecture.analysis_progress || {};
+  let p = lecture.analysis_progress || {};
+  if (!p.stage) {
+    const total = sections(lecture.transcript).length;
+    p = { stage:"extract", next:0, total, notes:[], reduceLevel:0, reduceNext:0, reduceNotes:[] };
+    await db.from("lectures").update({ status:"processing", error_message:null, analysis_progress:p, updated_at:new Date().toISOString() }).eq("id",lecture.id).eq("user_id",user.id);
+  }
   try {
     if (p.stage === "extract") {
       const parts = sections(lecture.transcript);
