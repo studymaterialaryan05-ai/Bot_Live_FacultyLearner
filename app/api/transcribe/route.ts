@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const groqKey = process.env.GROQ_API_KEY!;
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
   const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST", headers: { Authorization: "Bearer " + groqKey }, body: form,
-    signal: AbortSignal.timeout(110000)
+    signal: AbortSignal.timeout(55000)
   });
   if (!response.ok) {
     const detail = await response.text();
