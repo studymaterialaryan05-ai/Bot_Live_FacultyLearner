@@ -89,3 +89,18 @@ Run the updated `supabase/schema.sql` in the Supabase SQL Editor. It restores au
 ### Free-tier considerations
 
 Audio splitting runs on the user's device. Groq transcription and analysis still consume the free-tier API quota and are subject to current rate limits. A long 175 MB recording may take substantial time and browser memory; keep the tab open and use a desktop browser. The FFmpeg core download requires an internet connection.
+
+
+## OpenRouter multi-stage analysis
+
+Add `OPENROUTER_API_KEY` to Vercel Production environment variables. Groq remains responsible for Whisper transcription only; OpenRouter handles transcript analysis using the `openrouter/free` model router. The free router selects an available free model and may vary the model between requests.
+
+- The complete transcript is saved to the user's private Supabase lecture record before analysis begins.
+- Analysis extracts evidence from sequential transcript sections (with overlap), then progressively consolidates the section notes, and finally generates the study module and cumulative faculty profile.
+- Every extraction/consolidation step is saved in `lectures.analysis_progress`. Failed requests can be retried from the last saved checkpoint without retranscribing audio.
+- OpenRouter requests specify `data_collection: deny` and only use the free-model router. Model availability, latency, context limits and free-tier rate limits vary.
+- OpenRouter's current Free plan advertises 50 requests/day. A long lecture may consume multiple requests, so the app saves each step and can resume later rather than requiring one oversized prompt.
+
+### Database migration
+
+After deploying the new code, run the updated `supabase/schema.sql` in Supabase SQL Editor. It adds the `analysis_progress` JSONB checkpoint column. Existing transcripts and lecture records are retained.
