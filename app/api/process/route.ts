@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 const requestCounts = new Map<string, number[]>();
 
@@ -128,7 +128,7 @@ Rules:
           { role: "user", content: "Course: " + courseName + "\nFaculty: " + facultyName + "\nDate: " + (lectureDate || "unknown") + "\n\nCUMULATIVE CONTEXT FROM EARLIER LECTURES (may be empty):\n" + cumulativeContext + "\n\nTRANSCRIPT:\n" + mergedTranscript.slice(0, 90000) }
         ]
       }),
-      signal: AbortSignal.timeout(240000)
+      signal: AbortSignal.timeout(55000)
     });
     if (!completionResponse.ok) {
       const detail = await completionResponse.text();
