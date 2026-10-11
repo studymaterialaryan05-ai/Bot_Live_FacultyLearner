@@ -9,7 +9,7 @@ create table if not exists public.lectures (
   course_name text not null,
   faculty_name text not null,
   lecture_date date,
-  audio_path text not null,
+  audio_path text,
   audio_filename text not null,
   status text not null default 'uploaded' check (status in ('uploaded','processing','completed','failed')),
   transcript text,
@@ -89,24 +89,28 @@ create policy "Users delete own lecture audio" on storage.objects
   );
 
 
--- No-login student upload mode.
--- A shared sentinel owner is used for anonymous submissions. Browser clients
--- cannot read lecture rows; the server uses the service role for processing.
-alter table public.lectures drop constraint if exists lectures_user_id_fkey;
-alter table public.faculty_profiles drop constraint if exists faculty_profiles_user_id_fkey;
+-- Private single-owner mode. Do not grant anon access.
+alter table public.lectures alter column audio_path drop not null;
 
--- Permit unauthenticated browser uploads only into the public/ folder.
-drop policy if exists "Users upload own lecture audio" on storage.objects;
 drop policy if exists "Public students can upload lecture audio" on storage.objects;
-create policy "Public students can upload lecture audio" on storage.objects
-  for insert to anon with check (
-    bucket_id = 'lecture-audio'
-    and (storage.foldername(name))[1] = 'public'
+drop policy if exists "Users upload own lecture audio" on storage.objects;
+create policy "Users upload own lecture audio" on storage.objects
+  for insert to authenticated with check (
+    bucket_id = 'lecture-audio' and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "Users read own lecture audio" on storage.objects;
+create policy "Users read own lecture audio" on storage.objects
+  for select to authenticated using (
+    bucket_id = 'lecture-audio' and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "Users delete own lecture audio" on storage.objects;
+create policy "Users delete own lecture audio" on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'lecture-audio' and (storage.foldername(name))[1] = auth.uid()::text
   );
 
 update storage.buckets
-set public = false, file_size_limit = 25165824
+set public = false, file_size_limit = 20971520
 where id = 'lecture-audio';
-
--- Keep all lecture and profile reads private. The app shows results returned
--- directly by the processing API and does not expose a public lecture library.
