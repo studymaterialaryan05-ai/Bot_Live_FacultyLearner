@@ -46,6 +46,37 @@ export default function Home() {
     const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: window.location.origin } });
     setAuthBusy(false); setNotice(error ? error.message : "Check your inbox for your private sign-in link.", error ? "error" : "success");
   }
+  async function runAnalysis(lectureId: string, token: string) {
+    let completed = false; let count = 0;
+    while (!completed && count < 200) {
+      setProgressLabel("Analysing transcript · stage " + (count + 1));
+      const response = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json",Authorization:"Bearer "+token}, body:JSON.stringify({action:"step",lectureId}) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Analysis step failed. Your transcript and checkpoints are saved.");
+      count++;
+      if (result.done && result.lecture) {
+        completed = true; setProgress(100); setProgressLabel("Study module completed");
+        setLectures(prev=>[result.lecture,...prev.filter(x=>x.id!==result.lecture.id)].slice(0,20));
+        setSelected(result.lecture);
+      } else {
+        setProgress(Math.min(99, 90 + Math.round(count / Math.max(1, result.total || 8) * 9)));
+        setProgressLabel(result.message || "Analysis checkpoint saved");
+      }
+    }
+    if (!completed) throw new Error("Analysis has more stages remaining. Use Resume analysis to continue.");
+  }
+
+  async function resumeSavedAnalysis(lectureId: string) {
+    const token = session?.access_token;
+    if (!token) return setNotice("Please sign in again.");
+    setBusy(true); setNotice("Resuming from the last saved analysis checkpoint…");
+    try {
+      await runAnalysis(lectureId,token);
+      setNotice("Study module completed and saved.", "success");
+    } catch(e:any) { setNotice(e?.message || "Analysis could not be resumed.", "error"); }
+    finally { setBusy(false); }
+  }
+
   async function resumeJob(job: any) {
     setBusy(true); setFailedJob(null);
     let transcriptParts: string[] = [...job.transcripts];
@@ -76,13 +107,16 @@ export default function Home() {
       }
       const merged = transcriptParts.filter(Boolean).join("\n\n");
       if (!merged) throw new Error("No transcript text was returned.");
-      setProgressLabel("Building the study module…");
-      const response = await fetch("/api/process", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ filename: job.filename, courseName: job.courseName, facultyName: job.facultyName, lectureDate: job.lectureDate, transcript: merged }) });
-      const result = await response.json(); if (!response.ok) throw new Error(result.error || "Lecture analysis failed.");
-      setNotice("Lecture processed successfully. Temporary audio chunks have been removed.", "success");
-      setProgress(100); setProgressLabel("Completed"); setFile(null); setFailedJob(null);
+      setProgressLabel("Saving complete transcript and starting staged analysis…");
+      const startResponse = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json",Authorization:"Bearer "+token}, body:JSON.stringify({action:"start",filename:job.filename,courseName:job.courseName,facultyName:job.facultyName,lectureDate:job.lectureDate,transcript:merged}) });
+      const started = await startResponse.json();
+      if (!startResponse.ok) throw new Error(started.error || "Could not save the complete transcript.");
+      const placeholder: any = {id:started.lectureId,course_name:job.courseName,faculty_name:job.facultyName,lecture_date:job.lectureDate,audio_filename:job.filename,status:"processing",transcript:merged,analysis:null,created_at:new Date().toISOString()};
+      setLectures(prev=>[placeholder,...prev]); setSelected(placeholder);
+      await runAnalysis(started.lectureId,token);
+      setNotice("Lecture processed successfully. Complete transcript saved and temporary audio chunks removed.", "success");
+      setFile(null); setFailedJob(null);
       const picker = document.getElementById("audio-file") as HTMLInputElement | null; if (picker) picker.value = "";
-      if (result.lecture) { setLectures(prev => [result.lecture, ...prev].slice(0,20)); setSelected(result.lecture); }
     } catch (err: any) {
       setNotice(err?.message || "Processing failed. Retry the failed chunk.", "error");
       setFailedJob({ ...job, transcripts: transcriptParts, nextIndex: (() => { const missing = transcriptParts.findIndex((x,i)=>!x && i>=job.nextIndex); return missing < 0 ? job.chunks.length : missing; })() });
@@ -151,7 +185,7 @@ export default function Home() {
             <div className="notice">Private single-user workspace. Temporary audio chunks are deleted after successful transcription. Transcripts and study modules are saved. Upload only recordings you are permitted to use.</div>
           </div>
           <div className="panel">
-            <h4>This session’s lecture library</h4><p className="muted">Your latest saved lectures are loaded from your private account.</p>
+            <h4>This session’s lecture library</h4><p className="muted">Your latest saved lectures are loaded from your private account. Failed analyses can resume from saved checkpoints.</p>
             <div className="list">{lectures.length ? lectures.map(l=><button key={l.id} className="lecture" style={{background:selected?.id===l.id?"#f4f8f4":"white",textAlign:"left",width:"100%"}} onClick={()=>setSelected(l)}>
               <div><h5>{l.course_name}</h5><p>{l.faculty_name} · {l.lecture_date || new Date(l.created_at).toLocaleDateString()}<br/>{l.audio_filename}</p></div><span className={"pill " + l.status}>{l.status}</span>
             </button>) : <div className="empty">No lectures processed in this session yet. Upload your first recording to begin.</div>}</div>
@@ -160,7 +194,7 @@ export default function Home() {
       </section>
       {selected && <section className="section panel results">
         <div className="section-head"><div><h3>{selected.course_name}</h3><p>{selected.faculty_name} · {selected.lecture_date || "Date not set"} · {selected.audio_filename}</p></div><button className="btn secondary" onClick={()=>setSelected(null)}>Close notes</button></div>
-        {selected.status === "failed" && <div className="notice error">{selected.error_message || "This lecture failed to process. Check API configuration and try again."}</div>}
+        {selected.status === "failed" && <><div className="notice error">{selected.error_message || "This lecture analysis failed. Its transcript and completed checkpoints are retained."}</div>{selected.transcript && <button className="btn" disabled={busy} onClick={()=>resumeSavedAnalysis(selected.id)}>Resume analysis from saved checkpoint</button></> }
         {selected.status !== "completed" ? <><div className="empty">This lecture is {selected.status}. {selected.error_message || "Processing is not complete."}</div>{selected.transcript && <div className="result-section"><h4>Saved transcript</h4><pre style={{whiteSpace:"pre-wrap",fontFamily:"inherit",fontSize:12,lineHeight:1.8}}>{selected.transcript}</pre></div>}</> : <>
           <div className="result-section"><h4>Executive summary</h4><p>{analysis.executive_summary || "No summary available."}</p></div>
           <div className="result-section"><h4>Core concepts and frameworks</h4>{(analysis.concepts || []).map((c:any,i:number)=><div key={i} style={{marginBottom:14}}><strong style={{fontSize:13}}>{i+1}. {c.name}</strong><p>{c.explanation}</p>{c.management_application && <p><b>Management application:</b> {c.management_application}</p>}{c.evidence && <p className="muted">Lecture evidence: {c.evidence}</p>}</div>)}</div>
