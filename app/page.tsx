@@ -58,7 +58,7 @@ export default function Home() {
   return <main className="shell">
     <header className="topbar">
       <div className="brand"><div className="brandmark">F</div><div><h1>FacultyLens AI</h1><p>MBA Lecture Intelligence</p></div></div>
-      <div className="topnote">"Open student workspace · No account required"</div>
+      <div className="topnote">Open student workspace · No account required</div>
     </header>
 
     <section className="hero">
@@ -105,7 +105,7 @@ export default function Home() {
           <div className="result-section"><h4>Research sources</h4>{(analysis.sources || []).length ? <ul>{analysis.sources.map((s:any,i:number)=><li key={i}><a href={s.url} target="_blank" rel="noreferrer">{s.title || s.url}</a> {s.summary ? "· " + s.summary : ""}</li>)}</ul> : <p className="muted">No external research sources were retrieved. Configure TAVILY_API_KEY to enable web research.</p>}</div>
           <div className="result-section"><h4>Full transcript</h4><details><summary style={{cursor:"pointer",fontSize:13,fontWeight:700}}>Show transcript</summary><pre style={{whiteSpace:"pre-wrap",fontFamily:"inherit",fontSize:12,lineHeight:1.8,color:"#34433c"}}>{selected.transcript}</pre></details></div>
         </>}
-      </section>
+      </section>}
     <footer className="footer">FacultyLens AI · Built for learning, not certainty. Always verify important concepts, formulas, citations, and exam priorities against your course materials.</footer>
   </main>;
 }
