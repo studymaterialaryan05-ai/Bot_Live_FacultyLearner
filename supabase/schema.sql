@@ -87,3 +87,26 @@ create policy "Users delete own lecture audio" on storage.objects
   for delete to authenticated using (
     bucket_id = 'lecture-audio' and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+
+-- No-login student upload mode.
+-- A shared sentinel owner is used for anonymous submissions. Browser clients
+-- cannot read lecture rows; the server uses the service role for processing.
+alter table public.lectures drop constraint if exists lectures_user_id_fkey;
+alter table public.faculty_profiles drop constraint if exists faculty_profiles_user_id_fkey;
+
+-- Permit unauthenticated browser uploads only into the public/ folder.
+drop policy if exists "Users upload own lecture audio" on storage.objects;
+drop policy if exists "Public students can upload lecture audio" on storage.objects;
+create policy "Public students can upload lecture audio" on storage.objects
+  for insert to anon with check (
+    bucket_id = 'lecture-audio'
+    and (storage.foldername(name))[1] = 'public'
+  );
+
+update storage.buckets
+set public = false, file_size_limit = 25165824
+where id = 'lecture-audio';
+
+-- Keep all lecture and profile reads private. The app shows results returned
+-- directly by the processing API and does not expose a public lecture library.
