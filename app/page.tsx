@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createBrowserSupabase } from "@/lib/supabase";
 
 type Lecture = {
@@ -12,8 +12,7 @@ type Lecture = {
 const supabase = createBrowserSupabase();
 
 export default function Home() {
-  const [session, setSession] = useState<any>(null);
-  const [email, setEmail] = useState("");
+
   const [course, setCourse] = useState("");
   const [faculty, setFaculty] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -24,44 +23,22 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
-    return () => listener.subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => { if (session?.user?.id) loadLectures(); else setLectures([]); }, [session?.user?.id]);
-
-  async function loadLectures() {
-    const { data, error } = await supabase.from("lectures").select("*").order("created_at", { ascending: false }).limit(50);
-    if (error) setNotice("Could not load lecture history. Run supabase/schema.sql and check your Supabase settings.", "error");
-    else setLectures((data || []) as Lecture[]);
-  }
-
   function setNotice(text: string, type = "") { setMessage(text); setMessageType(type); }
-
-  async function signIn(e: React.FormEvent) {
-    e.preventDefault(); setBusy(true); setNotice("");
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
-    setBusy(false);
-    setNotice(error ? error.message : "Check your email for the secure sign-in link.", error ? "error" : "success");
-  }
 
   async function uploadAndProcess(e: React.FormEvent) {
     e.preventDefault();
-    if (!session?.access_token) return setNotice("Please sign in first.", "error");
     if (!file || !course.trim() || !faculty.trim()) return setNotice("Add a recording, course name, and faculty name.", "error");
     if (file.size > 24 * 1024 * 1024) return setNotice("This recording is over 24 MB. The current transcription API limit requires a smaller file. Compress it or split it into shorter parts, then upload each part as a separate lecture segment.", "error");
     setBusy(true); setNotice("Uploading audio securely…");
     try {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = session.user.id + "/" + crypto.randomUUID() + "-" + safeName;
+      const path = "public/" + crypto.randomUUID() + "-" + safeName;
       const { error: uploadError } = await supabase.storage.from("lecture-audio").upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
       if (uploadError) throw uploadError;
       setNotice("Audio uploaded. Transcribing and analysing the lecture…");
       const response = await fetch("/api/process", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + session.access_token },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ audioPath: path, filename: file.name, courseName: course.trim(), facultyName: faculty.trim(), lectureDate: date || null })
       });
       const result = await response.json();
@@ -69,34 +46,26 @@ export default function Home() {
       setNotice("Lecture processed successfully. Your transcript and study module are ready.", "success");
       setFile(null);
       const picker = document.getElementById("audio-file") as HTMLInputElement | null; if (picker) picker.value = "";
-      await loadLectures();
-      if (result.lecture) setSelected(result.lecture);
+      if (result.lecture) { setLectures(prev => [result.lecture, ...prev].slice(0, 20)); setSelected(result.lecture); }
     } catch (err: any) {
       setNotice(err?.message || "Something went wrong. Check your settings and try again.", "error");
-      await loadLectures();
+
     } finally { setBusy(false); }
   }
 
-  async function signOut() { await supabase.auth.signOut(); setSelected(null); }
 
   const analysis = selected?.analysis || {};
   return <main className="shell">
     <header className="topbar">
       <div className="brand"><div className="brandmark">F</div><div><h1>FacultyLens AI</h1><p>MBA Lecture Intelligence</p></div></div>
-      <div className="topnote">{session ? session.user.email : "Private academic workspace"}</div>
-      {session && <button className="btn ghost" onClick={signOut}>Sign out</button>}
+      <div className="topnote">"Open student workspace · No account required"</div>
     </header>
 
     <section className="hero">
-      <div><div className="eyebrow">Your personal academic intelligence system</div><h2>Turn every lecture into a learning advantage.</h2><p>Capture what was said, understand what it means, connect it to management theory, and practise applying it. Each recording becomes part of your growing course knowledge base.</p></div>
-      <div className="hero-stat"><strong>{lectures.length.toString().padStart(2, "0")}</strong><span>recordings in your library<br/>Your history builds as you upload more lectures.</span></div>
+      <div><div className="eyebrow">Open academic learning workspace</div><h2>Turn every lecture into a learning advantage.</h2><p>Capture what was said, understand what it means, connect it to management theory, and practise applying it. Upload without creating an account. Your notes remain in this browser session.</p></div>
+      <div className="hero-stat"><strong>{lectures.length.toString().padStart(2, "0")}</strong><span>recordings in your library<br/>Your processed lectures appear here during this session.</span></div>
     </section>
 
-    {!session ? <section className="section panel" style={{maxWidth:560,marginLeft:"auto",marginRight:"auto"}}>
-      <h4>Sign in to your private workspace</h4><p className="muted">We use a secure email link. Your recordings and notes are tied to your account.</p>
-      <form onSubmit={signIn}><div className="field" style={{marginTop:16}}><label>Email address</label><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></div><div className="actions"><button className="btn" disabled={busy}>{busy ? "Sending…" : "Send sign-in link"}</button></div></form>
-      {message && <div className={"notice " + messageType}>{message}</div>}
-    </section> : <>
       <section className="section">
         <div className="section-head"><div><h3>Lecture workspace</h3><p>Upload one recording at a time. The system will transcribe and build a study pack.</p></div></div>
         <div className="grid">
@@ -112,13 +81,13 @@ export default function Home() {
               <div className="actions"><button className="btn" disabled={busy}>{busy ? "Working…" : "Upload and analyse lecture"}</button></div>
               {message && <div className={"notice " + messageType}>{message}</div>}
             </form>
-            <div className="notice">Recordings may contain classmates' voices. Upload only where permitted, and respect consent and your institution's rules. AI transcripts can contain errors.</div>
+            <div className="notice">No account is required. Do not upload confidential or sensitive recordings. Upload only where permitted and with appropriate consent. AI transcripts can contain errors. Your session library clears when you refresh or close the page.</div>
           </div>
           <div className="panel">
-            <h4>Your lecture library</h4><p className="muted">Open any completed lecture to revisit its transcript and learning outputs.</p>
+            <h4>This session’s lecture library</h4><p className="muted">Open a processed lecture during this browser session. Refreshing the page clears this temporary list.</p>
             <div className="list">{lectures.length ? lectures.map(l=><button key={l.id} className="lecture" style={{background:selected?.id===l.id?"#f4f8f4":"white",textAlign:"left",width:"100%"}} onClick={()=>setSelected(l)}>
               <div><h5>{l.course_name}</h5><p>{l.faculty_name} · {l.lecture_date || new Date(l.created_at).toLocaleDateString()}<br/>{l.audio_filename}</p></div><span className={"pill " + l.status}>{l.status}</span>
-            </button>) : <div className="empty">Your library is empty. Upload your first lecture to begin building your course knowledge base.</div>}</div>
+            </button>) : <div className="empty">No lectures processed in this session yet. Upload your first recording to begin.</div>}</div>
           </div>
         </div>
       </section>
@@ -136,8 +105,7 @@ export default function Home() {
           <div className="result-section"><h4>Research sources</h4>{(analysis.sources || []).length ? <ul>{analysis.sources.map((s:any,i:number)=><li key={i}><a href={s.url} target="_blank" rel="noreferrer">{s.title || s.url}</a> {s.summary ? "· " + s.summary : ""}</li>)}</ul> : <p className="muted">No external research sources were retrieved. Configure TAVILY_API_KEY to enable web research.</p>}</div>
           <div className="result-section"><h4>Full transcript</h4><details><summary style={{cursor:"pointer",fontSize:13,fontWeight:700}}>Show transcript</summary><pre style={{whiteSpace:"pre-wrap",fontFamily:"inherit",fontSize:12,lineHeight:1.8,color:"#34433c"}}>{selected.transcript}</pre></details></div>
         </>}
-      </section>}
-    </>}
+      </section>
     <footer className="footer">FacultyLens AI · Built for learning, not certainty. Always verify important concepts, formulas, citations, and exam priorities against your course materials.</footer>
   </main>;
 }
