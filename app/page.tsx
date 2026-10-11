@@ -32,14 +32,16 @@ export default function Home() {
     setBusy(true); setNotice("Uploading audio securely…");
     try {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = "public/" + crypto.randomUUID() + "-" + safeName;
+      let workspaceId = localStorage.getItem("facultyLensWorkspaceId");
+      if (!workspaceId) { workspaceId = crypto.randomUUID(); localStorage.setItem("facultyLensWorkspaceId", workspaceId); }
+      const path = "public/" + workspaceId + "/" + crypto.randomUUID() + "-" + safeName;
       const { error: uploadError } = await supabase.storage.from("lecture-audio").upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
       if (uploadError) throw uploadError;
       setNotice("Audio uploaded. Transcribing and analysing the lecture…");
       const response = await fetch("/api/process", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audioPath: path, filename: file.name, courseName: course.trim(), facultyName: faculty.trim(), lectureDate: date || null })
+        body: JSON.stringify({ audioPath: path, workspaceId, filename: file.name, courseName: course.trim(), facultyName: faculty.trim(), lectureDate: date || null })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Processing failed.");
