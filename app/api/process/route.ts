@@ -24,13 +24,12 @@ export async function POST(req: NextRequest) {
   recent.push(now);
   requestCounts.set(ip, recent);
   if (!supabaseUrl || !serviceKey || !groqKey) return jsonError("Server setup is incomplete. Check Supabase and Groq environment variables in Vercel.", 500);
-  const userId = "00000000-0000-0000-0000-000000000000";
-
   let body: any;
   try { body = await req.json(); } catch { return jsonError("Invalid request body."); }
-  const { audioPath, filename, courseName, facultyName, lectureDate } = body || {};
-  if (!audioPath || !filename || !courseName || !facultyName) return jsonError("Audio path, filename, course and faculty are required.");
-  if (!String(audioPath).startsWith("public/") || String(audioPath).includes("..")) return jsonError("Invalid audio path.", 403);
+  const { audioPath, workspaceId, filename, courseName, facultyName, lectureDate } = body || {};
+  if (!audioPath || !workspaceId || !filename || !courseName || !facultyName) return jsonError("Audio path, workspace, filename, course and faculty are required.");
+  if (!/^[0-9a-f-]{36}$/i.test(String(workspaceId)) || !String(audioPath).startsWith("public/" + workspaceId + "/") || String(audioPath).includes("..")) return jsonError("Invalid workspace or audio path.", 403);
+  const userId = String(workspaceId);
 
   const admin = adminClient();
   const { data: lecture, error: insertError } = await admin.from("lectures").insert({
