@@ -122,3 +122,7 @@ create policy "Users update own lecture audio" on storage.objects
 update storage.buckets
 set public = false, file_size_limit = 20971520
 where id = 'lecture-audio';
+
+
+-- Resumable transcript-analysis checkpoints (run this migration once).
+alter table public.lectures add column if not exists analysis_progress jsonb not null default '{}'::jsonb;
